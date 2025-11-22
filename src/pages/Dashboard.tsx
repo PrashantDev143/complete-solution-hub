@@ -28,16 +28,39 @@ const Dashboard = () => {
 
   const loadDashboardData = async () => {
     try {
-      // Get total products
-      const { count: productsCount } = await supabase
+      // Fetch all products with id and reorder_level
+      const { data: allProducts, count: productsCount } = await supabase
         .from("products")
-        .select("*", { count: "exact", head: true });
+        .select("id, reorder_level", { count: "exact" });
 
-      // Get low stock items
-      const { data: stockLevels } = await supabase
+      // Fetch all stock levels (per product, per warehouse)
+      const { data: allStockLevels } = await supabase
         .from("stock_levels")
-        .select("*, products!inner(reorder_level)")
-        .lte("quantity", 10);
+        .select("product_id, quantity");
+
+      // Create a sum of stock quantities per product
+      const stockMap = new Map<string, number>();
+      if (allStockLevels) {
+        allStockLevels.forEach(sl => {
+          stockMap.set(
+            sl.product_id,
+            (stockMap.get(sl.product_id) || 0) + Number(sl.quantity)
+          );
+        });
+      }
+
+      // Compute how many products are 'low stock' by dashboard logic
+      let lowStockCount = 0;
+      if (allProducts) {
+        for (const product of allProducts) {
+          const totalStock = stockMap.get(product.id) || 0;
+          if (totalStock <= product.reorder_level) {
+            lowStockCount += 1;
+          }
+        }
+      }
+
+      // -- The rest of your dashboard stats remain the same --
 
       // Get pending receipts
       const { count: receiptsCount } = await supabase
@@ -59,7 +82,7 @@ const Dashboard = () => {
 
       setStats({
         totalProducts: productsCount || 0,
-        lowStockItems: stockLevels?.length || 0,
+        lowStockItems: lowStockCount,
         pendingReceipts: receiptsCount || 0,
         pendingDeliveries: deliveriesCount || 0,
         scheduledTransfers: transfersCount || 0,
